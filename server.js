@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const twilio = require('twilio');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -36,9 +38,44 @@ if (!process.env.FORWARD_TO_NUMBER || !process.env.WEBHOOK_URL) {
 
 console.log('✓ Twilio client initialized successfully');
 
+// Message storage
+const messagesFile = path.join(__dirname, 'messages.json');
+let messages = [];
+
+// Load existing messages
+try {
+    if (fs.existsSync(messagesFile)) {
+        messages = JSON.parse(fs.readFileSync(messagesFile, 'utf8'));
+    }
+} catch (error) {
+    console.log('No existing messages file, starting fresh');
+    messages = [];
+}
+
+// Save messages to file
+function saveMessages() {
+    try {
+        fs.writeFileSync(messagesFile, JSON.stringify(messages, null, 2));
+    } catch (error) {
+        console.error('Error saving messages:', error);
+    }
+}
+
 // Middleware
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+
+// CORS for mobile app
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+    } else {
+        next();
+    }
+});
 
 // SMS webhook handler
 app.post('/sms', async (req, res) => {
@@ -47,9 +84,21 @@ app.post('/sms', async (req, res) => {
         
         console.log('SMS received:', { From, To, Body, MessageSid });
 
-        // Skip SMS forwarding due to A2P 10DLC requirements
-        // Only webhook notification will be sent
-        console.log(`SMS received from ${From}: ${Body}`);
+        // Store message for mobile app
+        const messageData = {
+            id: MessageSid,
+            type: 'sms',
+            from: From,
+            to: To,
+            body: Body,
+            timestamp: new Date().toISOString(),
+            read: false,
+            replied: false
+        };
+        
+        messages.unshift(messageData); // Add to beginning of array
+        saveMessages();
+        console.log(`SMS stored from ${From}: ${Body}`);
 
         // Send webhook notification
         const webhookData = {
@@ -149,6 +198,76 @@ app.post('/call-status', async (req, res) => {
     }
 });
 
+// API endpoints for mobile app
+
+// Get all messages
+app.get('/api/messages', (req, res) => {
+    try {
+        res.json({
+            success: true,
+            messages: messages,
+            count: messages.length
+        });
+    } catch (error) {
+        console.error('Error fetching messages:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch messages' });
+    }
+});
+
+// Mark message as read
+app.post('/api/messages/:id/read', (req, res) => {
+    try {
+        const messageId = req.params.id;
+        const message = messages.find(m => m.id === messageId);
+        
+        if (message) {
+            message.read = true;
+            saveMessages();
+            res.json({ success: true, message: 'Message marked as read' });
+        } else {
+            res.status(404).json({ success: false, error: 'Message not found' });
+        }
+    } catch (error) {
+        console.error('Error marking message as read:', error);
+        res.status(500).json({ success: false, error: 'Failed to mark message as read' });
+    }
+});
+
+// Mark message as replied
+app.post('/api/messages/:id/replied', (req, res) => {
+    try {
+        const messageId = req.params.id;
+        const message = messages.find(m => m.id === messageId);
+        
+        if (message) {
+            message.replied = true;
+            message.read = true;
+            saveMessages();
+            res.json({ success: true, message: 'Message marked as replied' });
+        } else {
+            res.status(404).json({ success: false, error: 'Message not found' });
+        }
+    } catch (error) {
+        console.error('Error marking message as replied:', error);
+        res.status(500).json({ success: false, error: 'Failed to mark message as replied' });
+    }
+});
+
+// Get message count
+app.get('/api/messages/count', (req, res) => {
+    try {
+        const unreadCount = messages.filter(m => !m.read).length;
+        res.json({
+            success: true,
+            total: messages.length,
+            unread: unreadCount
+        });
+    } catch (error) {
+        console.error('Error getting message count:', error);
+        res.status(500).json({ success: false, error: 'Failed to get message count' });
+    }
+});
+
 // Health check endpoint
 app.get('/', (req, res) => {
     res.json({ 
@@ -156,8 +275,10 @@ app.get('/', (req, res) => {
         endpoints: {
             sms: '/sms',
             voice: '/voice',
-            callStatus: '/call-status'
-        }
+            callStatus: '/call-status',
+            api: '/api/messages'
+        },
+        messageCount: messages.length
     });
 });
 
