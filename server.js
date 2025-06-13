@@ -6,6 +6,24 @@ const axios = require('axios');
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Check required environment variables
+const requiredEnvVars = [
+    'TWILIO_API_KEY_SID',
+    'TWILIO_API_KEY_SECRET', 
+    'TWILIO_ACCOUNT_SID',
+    'FORWARD_TO_NUMBER',
+    'WEBHOOK_URL'
+];
+
+console.log('Checking environment variables...');
+for (const envVar of requiredEnvVars) {
+    if (!process.env[envVar]) {
+        console.error(`Missing required environment variable: ${envVar}`);
+        process.exit(1);
+    }
+    console.log(`✓ ${envVar} is set`);
+}
+
 // Twilio client with API Key (more secure)
 const client = twilio(
     process.env.TWILIO_API_KEY_SID, 
