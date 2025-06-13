@@ -7,29 +7,34 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // Check required environment variables
-const requiredEnvVars = [
-    'TWILIO_API_KEY_SID',
-    'TWILIO_API_KEY_SECRET', 
-    'TWILIO_ACCOUNT_SID',
-    'FORWARD_TO_NUMBER',
-    'WEBHOOK_URL'
-];
-
 console.log('Checking environment variables...');
-for (const envVar of requiredEnvVars) {
-    if (!process.env[envVar]) {
-        console.error(`Missing required environment variable: ${envVar}`);
-        process.exit(1);
-    }
-    console.log(`✓ ${envVar} is set`);
+console.log('Available env vars:', Object.keys(process.env).filter(key => key.includes('TWILIO')));
+
+// Try API Key first, fallback to Account SID/Token
+let client;
+if (process.env.TWILIO_API_KEY_SID && process.env.TWILIO_API_KEY_SECRET) {
+    console.log('Using Twilio API Key authentication');
+    client = twilio(
+        process.env.TWILIO_API_KEY_SID, 
+        process.env.TWILIO_API_KEY_SECRET, 
+        { accountSid: process.env.TWILIO_ACCOUNT_SID }
+    );
+} else if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+    console.log('Using Twilio Account SID/Token authentication');
+    client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+} else {
+    console.error('Missing Twilio credentials. Need either:');
+    console.error('1. TWILIO_API_KEY_SID + TWILIO_API_KEY_SECRET + TWILIO_ACCOUNT_SID');
+    console.error('2. TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN');
+    process.exit(1);
 }
 
-// Twilio client with API Key (more secure)
-const client = twilio(
-    process.env.TWILIO_API_KEY_SID, 
-    process.env.TWILIO_API_KEY_SECRET, 
-    { accountSid: process.env.TWILIO_ACCOUNT_SID }
-);
+if (!process.env.FORWARD_TO_NUMBER || !process.env.WEBHOOK_URL) {
+    console.error('Missing required variables: FORWARD_TO_NUMBER or WEBHOOK_URL');
+    process.exit(1);
+}
+
+console.log('✓ Twilio client initialized successfully');
 
 // Middleware
 app.use(express.urlencoded({ extended: true }));
