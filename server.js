@@ -47,14 +47,9 @@ app.post('/sms', async (req, res) => {
         
         console.log('SMS received:', { From, To, Body, MessageSid });
 
-        // Forward SMS to destination number
-        if (process.env.FORWARD_TO_NUMBER) {
-            await client.messages.create({
-                body: `Forwarded SMS from ${From}: ${Body}`,
-                from: process.env.TWILIO_PHONE_NUMBER,
-                to: process.env.FORWARD_TO_NUMBER
-            });
-        }
+        // Skip SMS forwarding due to A2P 10DLC requirements
+        // Only webhook notification will be sent
+        console.log(`SMS received from ${From}: ${Body}`);
 
         // Send webhook notification
         const webhookData = {
